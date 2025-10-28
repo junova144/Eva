@@ -1,0 +1,36 @@
+
+EVA/
+│
+├── main.py                         # Punto de entrada (orquestador principal)
+│
+├── app/
+│   ├── ui_streamlit.py             # Interfaz principal con Streamlit
+│   ├── validator.py                # Validación de preguntas y flujo
+│   ├── courses_data.py             # Base de conocimiento de cursos
+│   └── config.py                   # Configuración general
+│
+├── agents/
+│   ├── __init__.py
+│   ├── agent_matematica.py
+│   ├── agent_comunicacion.py
+│   ├── agent_ciencia.py
+│   ├── agent_trabajo.py
+│   └── agent_ingles.py
+│
+├── tools/
+│   ├── __init__.py
+│   └── (aquí irían herramientas específicas si luego cada agente necesita las suyas)
+│
+├── data/
+│   └── (archivos auxiliares, PDFs, boosters, datasets, etc.)
+│
+├── logs/
+│   └── (archivos de registro o depuración)
+│
+└── requirements.txt
+
+##correr streamlit 
+streamlit run App/ui_streamlit.py
+
+##activar entorno virtual
+env311\Scripts\activate.bat
