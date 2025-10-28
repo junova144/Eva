@@ -192,21 +192,24 @@ source venv/bin/activate
 # 3. Instalar Dependencias
 pip install -r requirements.txt
 ```
-###5.3. Configuración de CredencialesBash# 
+### 5.3. Configuración de Credenciales
+Crea un archivo llamado **`.env`** en la raíz del proyecto para almacenar tus claves de API de forma segura:
 
-#### 1. Crear un archivo llamado .env en la raíz del proyecto
-#### 2. Añadir tus claves:
+```bash
+# 1. Crear un archivo llamado .env en la raíz del proyecto
+# 2. Añadir tus claves:
 echo 'OPENAI_API_KEY="sk-..."' > .env
 echo 'TAVILY_API_KEY="tvly-..."' >> .env
+```
 
 ### 5.4. EjecuciónBash# Inicia la interfaz de usuario con Streamlit:
 streamlit run app/ui_streamlit.py
 
 # 📂 6. Estructura del RepositorioDirectorioFunción 
-Directorio	Función Principal
-main.py	Supervisor y Ruteador (Lógica de AGENTS_EXECUTORS).
-app/	Frontend, Validador y Configuración.
-agents/	Contiene los Grafos de LangGraph para cada materia (Agentes Especializados).
-tools/	Módulos con la definición de las Herramientas personalizadas.
-data/	Archivos de contexto estáticos (si aplica).
-requirements.txt	Lista de dependencias de Python.
+Directorio,Función Principal
+main.py,Supervisor y Ruteador (Lógica de AGENTS_EXECUTORS).
+app/,"Frontend, Validador y Configuración."
+agents/,Contiene los Grafos de LangGraph para cada materia (Agentes Especializados).
+tools/,Módulos con la definición de las Herramientas personalizadas.
+data/,Archivos de contexto estáticos (si aplica).
+requirements.txt,Lista de dependencias de Python.
