@@ -205,8 +205,7 @@ echo 'TAVILY_API_KEY="tvly-..."' >> .env
 ### 5.4. EjecuciónBash# Inicia la interfaz de usuario con Streamlit:
 streamlit run app/ui_streamlit.py
 
-# 📂 6. Estructura del RepositorioDirectorioFunción 
-## 📂 6. Estructura del Repositorio
+# 📂 6. Estructura del Repositorio
 
 | Directorio/Archivo | Descripción |
 | :--- | :--- |
