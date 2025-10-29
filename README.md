@@ -206,10 +206,22 @@ echo 'TAVILY_API_KEY="tvly-..."' >> .env
 streamlit run app/ui_streamlit.py
 
 # 📂 6. Estructura del RepositorioDirectorioFunción 
-Directorio,Función Principal
-main.py,Supervisor y Ruteador (Lógica de AGENTS_EXECUTORS).
-app/,"Frontend, Validador y Configuración."
-agents/,Contiene los Grafos de LangGraph para cada materia (Agentes Especializados).
-tools/,Módulos con la definición de las Herramientas personalizadas.
-data/,Archivos de contexto estáticos (si aplica).
-requirements.txt,Lista de dependencias de Python.
+## 📂 6. Estructura del Repositorio
+
+| Directorio/Archivo | Descripción |
+| :--- | :--- |
+| **EVA/** | Directorio Raíz del Proyecto. |
+| ├── `main.py` | **Supervisor y Orquestador Principal.** Punto de entrada que llama al `validator` y rutea la ejecución al agente correcto (`AGENTS_EXECUTORS`). |
+| ├── **app/** | Componentes de Interfaz, Flujo y Configuración. |
+| │ ├── `ui_streamlit.py` | Interfaz principal de usuario (Frontend). |
+| │ ├── `validator.py` | **Componente Clave:** Valida la entrada y genera el comando máquina (`curso_detectado`). |
+| │ ├── `courses_data.py` | Base de conocimiento estática de cursos y grados. |
+| │ └── `config.py` | Centraliza variables de entorno y parámetros de LLMs. |
+| ├── **agents/** | Contiene los Grafos de LangGraph (Agentes Especializados). |
+| │ ├── `agent_matematica.py` | Executor del Agente de Matemáticas. |
+| │ ├── `agent_comunicacion.py` | Executor del Agente de Comunicación. |
+| │ └── *[Otros Agentes]* | (ciencia, trabajo, inglés, etc.). |
+| ├── **tools/** | Módulos con la definición de las **Herramientas personalizadas** (ej. RAG Híbrido). |
+| ├── **data/** | Archivos auxiliares de contexto, *boosters*, o *datasets*. |
+| ├── **logs/** | Archivos de registro y depuración del sistema. |
+| └── `requirements.txt` | Lista de dependencias de Python necesarias. |
