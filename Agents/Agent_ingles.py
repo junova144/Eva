@@ -1,146 +1,128 @@
 # =======================================================================
-# main.py - Agente Especialista en Inglés
+# Agent_ingles.py - Agente Especialista en Inglés (EVA)
 # =======================================================================
 
 from langchain_openai import ChatOpenAI
-from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
-# Importar BaseMessage, SystemMessage, ToolMessage desde .messages (es correcto)
-from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage 
-# Importar MessagesPlaceholder desde .prompts (es la nueva ubicación)
-from langchain_core.prompts import MessagesPlaceholder
-from pydantic import BaseModel, Field
-from typing import TypedDict, Annotated, List
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser, StrOutputParser
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain.tools import tool
+from langgraph.prebuilt import create_react_agent
+from langgraph.checkpoint.memory import MemorySaver
 from langchain_community.tools.tavily_search import TavilySearchResults
 
-# -----------------------------
-# 0. Inicialización LLM y herramientas
-# -----------------------------
-llm_generador = ChatOpenAI(temperature=0.4, model="gpt-4o-mini")
-tavily_tool = TavilySearchResults(max_results=3)
-parser_generador = StrOutputParser()
+# =========================================
+# LLM Y MEMORIA
+# =========================================
+llm = ChatOpenAI(temperature=0.4, model="gpt-4o-mini")
+memory = MemorySaver()
 
-# -----------------------------
-# 1. Schema de salida
-# -----------------------------
-class RespuestaIngles(BaseModel):
-    """Modelo Pydantic que define la estructura de la respuesta final del agente de Inglés."""
-    explicacion_profunda: str = Field(description="Explicación detallada del tema de Inglés solicitado.")
-    parrafo_ejemplo: str = Field(description="Ejemplo o ejercicio práctico que ilustra la explicación.")
+# =========================================
+# TOOLS DEFINIDAS
+# =========================================
 
-parser_pydantic = PydanticOutputParser(pydantic_object=RespuestaIngles)
-FORMAT_INSTRUCTIONS = parser_pydantic.get_format_instructions()
-
-# -----------------------------
-# 2. Herramientas disponibles
-# -----------------------------
+# 1) Explicación y ejemplo del tema
 @tool
-def generar_explicacion(input_text: str) -> str:
-    """Genera explicación y ejemplo del tema de Inglés usando LLM."""
-    prompt = f"Explica y da un ejemplo del tema: {input_text}"
-    try:
-        result = llm_generador.invoke({"input": prompt})
-        return str(result)
-    except Exception as e:
-        return f"Error LLM: {e}"
+def generar_explicacion(tema: str) -> str:
+    """
+    Explica un tema de inglés (gramática, vocabulario o expresión)
+    de forma clara y pedagógica, con un ejemplo breve al final.
+    """
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
+    system = SystemMessage(content=(
+        "Eres un profesor de inglés para secundaria. Explica el tema solicitado "
+        "de forma sencilla y añade un ejemplo breve al final. No uses formato JSON."
+    ))
+    human = HumanMessage(content=f"Tema: {tema}")
+    resp = llm.invoke([system, human])
+    return resp.content.strip()
 
+
+# 2) Búsqueda de vocabulario o significado contextual
 @tool
-def buscar_vocabulario(input_text: str) -> str:
-    """Busca significado o contexto de palabras en inglés usando Tavily."""
+def buscar_vocabulario(palabra: str) -> str:
+    """
+    Busca el significado y ejemplos de uso de una palabra o frase en inglés.
+    Combina resultados web (Tavily) con una explicación educativa breve.
+    """
+    contexto = ""
     try:
-        resultados = tavily_tool.invoke({"query": input_text})
-        return "\n".join([r["content"] for r in resultados])
+        tavily = TavilySearchResults(max_results=3)
+        raw_results = tavily.invoke({"query": f"meaning and examples of '{palabra}' in English"})
+        if isinstance(raw_results, list):
+            contexto = "\n".join([r.get("content", "") for r in raw_results if isinstance(r, dict)])
     except Exception as e:
-        return f"Error Tavily: {e}"
+        contexto = f"(No se pudo obtener contexto: {e})"
 
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.35)
+    system = SystemMessage(content=(
+        "Eres un profesor de inglés que explica vocabulario de forma contextual y sencilla. "
+        "Resume los significados principales y da un ejemplo en inglés con su traducción al español."
+    ))
+    human = HumanMessage(content=f"Palabra o frase: {palabra}\n\nContexto web:\n{contexto}")
+    resp = llm.invoke([system, human])
+    return resp.content.strip()
+
+
+# 3) Generación de ejercicios prácticos
 @tool
-def generar_practica(input_text: str) -> str:
-    """Genera ejercicios cortos y sus soluciones sobre el tema de Inglés proporcionado."""
-    prompt = f"Crea un ejercicio corto y su solución sobre: {input_text}"
-    try:
-        result = llm_generador.invoke({"input": prompt})
-        return str(result)
-    except Exception as e:
-        return f"Error LLM: {e}"
+def generar_practica(tema: str) -> str:
+    """
+    Crea un ejercicio corto (1–3 oraciones) con su solución
+    sobre el tema o estructura gramatical indicada.
+    """
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.45)
+    system = SystemMessage(content=(
+        "Eres un docente de inglés. Crea un ejercicio corto de práctica "
+        "y proporciona la respuesta correcta. No des explicaciones teóricas."
+    ))
+    human = HumanMessage(content=f"Tema o estructura: {tema}")
+    resp = llm.invoke([system, human])
+    return resp.content.strip()
 
+
+# Lista de herramientas
 tools = [generar_explicacion, buscar_vocabulario, generar_practica]
 
-# -----------------------------
-# 3. Grafo y estado
-# -----------------------------
-class InglesGraphState(TypedDict):
-    """Estado del grafo del agente de Inglés: contiene mensajes acumulados."""
-    messages: Annotated[List[BaseMessage], lambda x, y: x + y]
+# =========================================
+# PROMPT BASE REACT
+# =========================================
+prompt = """
+Eres EVA, una especialista en Inglés para secundaria.
+Tu tarea es analizar la solicitud del estudiante y decidir qué herramienta usar.
 
-global_llm_with_tools = None
+- Si el usuario pide una explicación o definición de un tema, usa **generar_explicacion**.
+- Si el usuario pide significado, traducción o uso de una palabra o frase, usa **buscar_vocabulario**.
+- Si el usuario pide ejercicios o prácticas, usa **generar_practica**.
 
-def ingles_agent_node(state: InglesGraphState):
-    """Nodo principal del agente de Inglés que decide la respuesta final JSON."""
-    messages = state["messages"]
-    if global_llm_with_tools is None:
-        raise ValueError("El agente de Inglés no ha sido inicializado.")
+Responde siempre en formato JSON con los siguientes campos:
+{
+  "explicacion_profunda": "explicación o desarrollo del tema solicitado",
+  "parrafo_ejemplo": "ejemplo, vocabulario o práctica generada"
+}
+"""
 
-    final_prompt = ChatPromptTemplate.from_messages([
-        SystemMessage(content=(
-            "ERES EVA, un Agente Especialista en Inglés para secundaria. "
-            "Tu objetivo es responder la pregunta del estudiante de manera educativa y clara. "
-            "Devuelve SOLO un JSON que cumpla con el formato Pydantic de salida."
-        )),
-        MessagesPlaceholder(variable_name="messages"),
-        SystemMessage(content=FORMAT_INSTRUCTIONS)
-    ])
+# =========================================
+# CREAR EL AGENTE REACT CON HERRAMIENTAS
+# =========================================
+agent = create_react_agent(llm, tools, checkpointer=memory, prompt=prompt)
 
-    agent_chain = final_prompt | global_llm_with_tools
-    response = agent_chain.invoke({"messages": messages})
-    return {"messages": [response]}
-
-def ingles_tool_node(state: InglesGraphState):
-    """Ejecuta la herramienta solicitada por el agente y devuelve ToolMessage con el resultado."""
-    messages = state["messages"]
-    last_message = messages[-1]
-    tool_results: List[ToolMessage] = []
-
-    for tool_call in getattr(last_message, "tool_calls", []):
-        tool_name = tool_call["name"]
-        tool_args = tool_call["args"]
-
-        if tool_name == "generar_explicacion":
-            result_content = generar_explicacion.invoke(tool_args)
-        elif tool_name == "buscar_vocabulario":
-            result_content = buscar_vocabulario.invoke(tool_args)
-        elif tool_name == "generar_practica":
-            result_content = generar_practica.invoke(tool_args)
-        else:
-            result_content = f"Error: Herramienta desconocida: {tool_name}"
-
-        tool_results.append(ToolMessage(tool_call_id=tool_call["id"], content=result_content, name=tool_name))
-
-    return {"messages": tool_results}
-
-def ingles_should_continue(state: InglesGraphState) -> str:
-    """Decide si continuar usando herramientas o terminar el flujo del agente."""
-    last_message = state["messages"][-1]
-    return "tools" if getattr(last_message, "tool_calls", None) else END
+# =========================================
+# FUNCIÓN PARA STREAMLIT
+# =========================================
+global_llm_with_tools = None  # Inicializar variable global
 
 def get_ingles_agent():
-    """Inicializa y compila el agente especialista en Inglés, devuelve executor y schema Pydantic."""
+    """Inicializa y devuelve el agente de Inglés y su esquema."""
     global global_llm_with_tools
 
     if global_llm_with_tools is None:
-        print("🤖 Inicializando Agente Especialista en Inglés...")
-        llm_agent = ChatOpenAI(temperature=0, model="gpt-4o")
-        global_llm_with_tools = llm_agent.bind_tools(tools)
-        print("✅ Agente Inglés inicializado.")
+        print("🤖 Inicializando Agente de Inglés (LangGraph ReAct)...")
+        global_llm_with_tools = agent
+        print("✅ Agente Inglés inicializado correctamente.")
 
-    memory_saver = MemorySaver()
-    workflow = StateGraph(InglesGraphState)
-    workflow.add_node("agent", ingles_agent_node)
-    workflow.add_node("tools", ingles_tool_node)
-    workflow.set_entry_point("agent")
-    workflow.add_conditional_edges("agent", ingles_should_continue, {"tools": "tools", END: END})
-    workflow.add_edge("tools", "agent")
+    schema = {
+        "explicacion_profunda": "str",
+        "parrafo_ejemplo": "str"
+    }
 
-    return workflow.compile(checkpointer=memory_saver), RespuestaIngles
+    return global_llm_with_tools, schema
+

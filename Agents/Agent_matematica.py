@@ -2,184 +2,118 @@
 # Agents/Agent_matematica.py - Agente Especialista en Matemáticas
 # =======================================================================
 
-import os
-from typing import TypedDict, Annotated, List
+from typing import Any, Dict
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
-from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.prompts import MessagesPlaceholder, ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser, StrOutputParser
-from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain.tools import tool
+from langchain_community.tools.tavily_search import TavilySearchResults
+from langgraph.prebuilt import create_react_agent
+from langgraph.checkpoint.memory import MemorySaver
 
-# -----------------------------
-# 0. Inicialización LLM y soporte
-# -----------------------------
-tavily_tool = TavilySearchResults(max_results=3)
-llm_generador = ChatOpenAI(temperature=0.2, model="gpt-4o-mini")
-parser_generador = StrOutputParser()
+# =========================================
+# 0. Inicialización LLM y memoria
+# =========================================
+llm = ChatOpenAI(temperature=0.4, model="gpt-4o-mini")
+memory = MemorySaver()
+tavily_tool = TavilySearchResults(max_results=4)
 
-# -----------------------------
+# =========================================
 # 1. Schema de salida
-# -----------------------------
+# =========================================
 class RespuestaMatematica(BaseModel):
-    """Modelo Pydantic para la respuesta del Agente Especialista en Matemáticas."""
-    explicacion_profunda: str = Field(description="Explicación paso a paso del concepto o problema.")
+    explicacion_profunda: str = Field(description="Explicación detallada del concepto, procedimiento o verificación.")
     parrafo_ejemplo: str = Field(description="Ejemplo práctico o problema resuelto que ilustra la explicación.")
 
-parser_pydantic = PydanticOutputParser(pydantic_object=RespuestaMatematica)
-FORMAT_INSTRUCTIONS = parser_pydantic.get_format_instructions()
-
-# -----------------------------
+# =========================================
 # 2. Herramientas Matemáticas
-# -----------------------------
-class ResolverInput(BaseModel):
-    problema: str = Field(description="Problema matemático a resolver paso a paso.")
-
-@tool(args_schema=ResolverInput)
+# =========================================
+@tool
 def resolucion_problemas(problema: str) -> str:
-    """Resuelve problemas matemáticos paso a paso y muestra la solución final."""
-    system_prompt = (
-        "Eres un asistente de matemáticas especializado en secundaria. "
-        "Resuelve el problema paso a paso, mostrando cálculos y concluyendo con la respuesta final. "
-        "Indica cómo verificar la solución si es posible."
-    )
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("human", f"Resuelve de forma clara y pedagógica este problema:\n\n{problema}")
-    ])
-    cadena = prompt | llm_generador | parser_generador
-    try:
-        return cadena.invoke({})
-    except Exception as e:
-        return f"Error en resolucion_problemas: {e}"
+    """Resuelve problemas matemáticos paso a paso."""
+    system = SystemMessage(content=(
+        "Eres un asistente de matemáticas para secundaria. "
+        "Resuelve el problema paso a paso mostrando cálculos y concluye con la respuesta final. "
+        "Indica cómo verificar la solución si aplica."
+    ))
+    human = HumanMessage(content=problema)
+    resp = llm.invoke([system, human])
+    return resp.content.strip()
 
-class ExplicacionInput(BaseModel):
-    concepto: str = Field(description="Concepto matemático a explicar.")
-
-@tool(args_schema=ExplicacionInput)
+@tool
 def explicacion_concepto(concepto: str) -> str:
-    """Explica conceptos matemáticos con ejemplos usando LLM y contexto de Tavily."""
-    search_query = f"Definición y ejemplos pedagógicos: {concepto} matemáticas secundaria"
+    """Explica conceptos matemáticos con ejemplos."""
+    # Intentamos obtener contexto de Tavily
+    contexto_text = ""
     try:
-        results = tavily_tool.invoke({"query": search_query})
-        contexto = "\n".join([f"- {r['content']}" for r in results])
+        raw_results = tavily_tool.invoke({"query": f"Definición y ejemplos: {concepto} matemáticas secundaria"})
+        if isinstance(raw_results, list):
+            contexto_text = "\n".join([r.get("content", "") for r in raw_results if isinstance(r, dict)])
+        else:
+            contexto_text = str(raw_results)
     except Exception as e:
-        contexto = f"(No se pudo obtener contexto externo: {e})"
+        contexto_text = f"(No se pudo obtener contexto: {e})"
 
-    system_prompt = (
-        "Eres un profesor de matemáticas para secundaria. "
-        "Usa el CONTEXTO cuando sea útil para ofrecer una explicación clara y concisa, "
-        "incluye fórmulas si aplica y un ejemplo resuelto breve."
-        f"\n\nCONTEXTO:\n{contexto}"
-    )
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("human", f"Explica y da un ejemplo del concepto matemático: {concepto}")
-    ])
-    cadena = prompt | llm_generador | parser_generador
-    try:
-        return cadena.invoke({})
-    except Exception as e:
-        return f"Error en explicacion_concepto: {e}"
+    system = SystemMessage(content=(
+        f"Eres un profesor de matemáticas para secundaria. Usa el contexto cuando sea útil:\n{contexto_text}\n"
+        "Explica el concepto claramente e incluye un ejemplo breve."
+    ))
+    human = HumanMessage(content=concepto)
+    resp = llm.invoke([system, human])
+    return resp.content.strip()
 
-class VerificacionInput(BaseModel):
-    enunciado: str = Field(description="Enunciado original o pasos del alumno.")
-    respuesta_alumno: str = Field(description="Respuesta numérica o procedimiento del alumno.")
-
-@tool(args_schema=VerificacionInput)
+@tool
 def verificacion_resultado(enunciado: str, respuesta_alumno: str) -> str:
-    """Verifica la coherencia del resultado de un alumno y da retroalimentación pedagógica."""
-    system_prompt = (
-        "Eres un verificador pedagógico en matemáticas. Revisa el enunciado y la respuesta del alumno. "
-        "Indica si es correcta, explica por qué o por qué no y sugiere pasos de corrección."
-    )
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("human", f"Enunciado: {enunciado}\nRespuesta del alumno: {respuesta_alumno}\nAnaliza y comenta.")
-    ])
-    cadena = prompt | llm_generador | parser_generador
-    try:
-        return cadena.invoke({})
-    except Exception as e:
-        return f"Error en verificacion_resultado: {e}"
+    """Verifica la coherencia de la respuesta de un alumno y da retroalimentación."""
+    system = SystemMessage(content=(
+        "Eres un verificador pedagógico en matemáticas. "
+        "Revisa el enunciado y la respuesta del alumno. "
+        "Indica si es correcta, explica por qué o por qué no, y sugiere pasos de corrección."
+    ))
+    human = HumanMessage(content=f"Enunciado: {enunciado}\nRespuesta del alumno: {respuesta_alumno}")
+    resp = llm.invoke([system, human])
+    return resp.content.strip()
 
 tools = [resolucion_problemas, explicacion_concepto, verificacion_resultado]
 
-# -----------------------------
-# 3. Grafo y estado del Agente Matemáticas
-# -----------------------------
-class MatematicaGraphState(TypedDict):
-    """Estado del grafo del Agente Especialista en Matemáticas."""
-    messages: Annotated[List[BaseMessage], lambda x, y: x + y]
+# =========================================
+# 3. Prompt general para el agente
+# =========================================
+PROMPT_GENERAL = f"""
+Eres EVA, un experto en Matemáticas para estudiantes de secundaria. 
+Tu tarea es analizar la solicitud del usuario y decidir cuál herramienta usar:
 
+- Si el usuario pide resolver un problema paso a paso, usa la herramienta **resolucion_problemas**.
+- Si el usuario pide una explicación de un concepto matemático, usa la herramienta **explicacion_concepto**.
+- Si el usuario pide verificar o corregir una respuesta de alumno, usa la herramienta **verificacion_resultado**.
+
+Responde SIEMPRE en formato JSON compatible con Pydantic:
+{{
+  "explicacion_profunda": "Explicación detallada del concepto, procedimiento o verificación.",
+  "parrafo_ejemplo": "Ejemplo práctico o problema resuelto que ilustra la explicación."
+}}
+"""
+
+# =========================================
+# 4. Crear agente ReAct
+# =========================================
+agent = create_react_agent(llm, tools, checkpointer=memory, prompt=PROMPT_GENERAL)
+
+# =========================================
+# 5. Función para Streamlit
+# =========================================
 global_llm_with_tools = None
 
-def matematica_agent_node(state: MatematicaGraphState):
-    """Nodo principal del agente que genera la respuesta final JSON o decide usar herramientas."""
-    messages = state["messages"]
-    if global_llm_with_tools is None:
-        raise ValueError("El agente de Matemáticas no ha sido inicializado.")
-
-    final_prompt = ChatPromptTemplate.from_messages([
-        SystemMessage(content=(
-            "ERES LUZIA-MATE, un Agente Especialista en Matemáticas para secundaria. "
-            "Usa herramientas cuando necesites: 'resolucion_problemas', 'explicacion_concepto', "
-            "y 'verificacion_resultado'. La respuesta final debe ser un JSON que cumpla el formato Pydantic."
-        )),
-        MessagesPlaceholder(variable_name="messages"),
-        HumanMessage(content=FORMAT_INSTRUCTIONS)
-    ])
-    agent_chain = final_prompt | global_llm_with_tools
-    response = agent_chain.invoke({"messages": messages})
-    return {"messages": [response]}
-
-def matematica_tool_node(state: MatematicaGraphState):
-    """Ejecuta la herramienta solicitada y devuelve ToolMessage con el resultado."""
-    messages = state["messages"]
-    last_message = messages[-1]
-    tool_results: List[ToolMessage] = []
-
-    for tool_call in getattr(last_message, "tool_calls", []):
-        tool_name = tool_call["name"]
-        tool_args = tool_call["args"]
-
-        if tool_name == "resolucion_problemas":
-            result_content = resolucion_problemas.invoke(tool_args)
-        elif tool_name == "explicacion_concepto":
-            result_content = explicacion_concepto.invoke(tool_args)
-        elif tool_name == "verificacion_resultado":
-            result_content = verificacion_resultado.invoke(tool_args)
-        else:
-            result_content = f"Error: Herramienta desconocida: {tool_name}"
-
-        tool_results.append(ToolMessage(tool_call_id=tool_call["id"], content=result_content, name=tool_name))
-
-    return {"messages": tool_results}
-
-def matematica_should_continue(state: MatematicaGraphState) -> str:
-    """Decide si el flujo del grafo continúa usando herramientas o termina."""
-    last_message = state["messages"][-1]
-    return "tools" if getattr(last_message, "tool_calls", None) else END
-
 def get_matematica_agent():
-    """Inicializa y compila el Agente Especialista en Matemáticas; devuelve executor y schema Pydantic."""
+    """Inicializa y devuelve el agente de Matemáticas y su esquema Pydantic."""
     global global_llm_with_tools
-
     if global_llm_with_tools is None:
         print("🤖 Inicializando Agente Matemáticas...")
-        llm_agent = ChatOpenAI(temperature=0, model="gpt-4o")
-        global_llm_with_tools = llm_agent.bind_tools(tools)
-        print("✅ Agente Matemáticas inicializado.")
+        global_llm_with_tools = agent
+        print("✅ Agente Matemáticas inicializado correctamente.")
 
-    memory_saver = MemorySaver()
-    workflow = StateGraph(MatematicaGraphState)
-    workflow.add_node("agent", matematica_agent_node)
-    workflow.add_node("tools", matematica_tool_node)
-    workflow.set_entry_point("agent")
-    workflow.add_conditional_edges("agent", matematica_should_continue, {"tools": "tools", END: END})
-    workflow.add_edge("tools", "agent")
-
-    return workflow.compile(checkpointer=memory_saver), RespuestaMatematica
+    schema = {
+        "explicacion_profunda": "str",
+        "parrafo_ejemplo": "str"
+    }
+    return global_llm_with_tools, schema

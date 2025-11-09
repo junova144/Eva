@@ -1,161 +1,133 @@
 # Agents/Agent_CTA.py
-import os
-from typing import TypedDict, Annotated, List
+## Imports
+import json
+from typing import Any, Dict, List
 from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage, SystemMessage
-from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.prompts import MessagesPlaceholder, ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser, StrOutputParser
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain.tools import tool
+from langgraph.prebuilt import create_react_agent
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_community.tools.tavily_search import TavilySearchResults
 
-# =======================================================================
-# 0. INICIALIZACIÓN LLM
-# =======================================================================
-llm_generador = ChatOpenAI(temperature=0.2, model="gpt-4o-mini")
-parser_generador = StrOutputParser()
+# =========================================
+# LLM Y MEMORIA
+# =========================================
+llm = ChatOpenAI(temperature=0.35, model="gpt-4o-mini")
+memory = MemorySaver()
 
-# =======================================================================
-# 1. ESQUEMA DE SALIDA (PYDANTIC)
-# =======================================================================
-class RespuestaArgumentativa(BaseModel):
-    explicacion_profunda: str = Field(description="Explicación detallada del concepto o fenómeno.")
-    parrafo_ejemplo: str = Field(description="Ejemplo práctico o actividad que ilustra la explicación.")
+# =========================================
+# HERRAMIENTAS (TOOLS)
+# =========================================
 
-parser_pydantic = PydanticOutputParser(pydantic_object=RespuestaArgumentativa)
-FORMAT_INSTRUCTIONS = parser_pydantic.get_format_instructions()
-
-# =======================================================================
-# 2. HERRAMIENTAS (TOOLS) - CTA
-# =======================================================================
-class ExplicacionCientificaInput(BaseModel):
-    concepto: str = Field(description="Fenómeno, proceso o concepto a explicar.")
-
-@tool(args_schema=ExplicacionCientificaInput)
+# 1) Explicación científica → definición o descripción de fenómeno
+@tool
 def explicacion_cientifica(concepto: str) -> str:
-    """Explica un fenómeno natural, proceso biológico o físico de forma clara y correcta."""
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "Eres un profesor de Ciencias, Tecnología y Ambiente (CTA) para secundaria."),
-        ("human", f"Explica de forma clara y correcta el siguiente concepto o fenómeno: {concepto}")
-    ])
-    cadena = prompt | llm_generador | parser_generador
-    try:
-        return cadena.invoke({})
-    except Exception as e:
-        return f"Error en explicacion_cientifica: {e}"
+    """
+    Explica un fenómeno natural, proceso biológico o físico de forma clara, correcta y comprensible.
+    No propone experimentos ni análisis, solo explicación teórica.
+    """
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+    system = SystemMessage(content=(
+        "Eres un profesor de Ciencias, Tecnología y Ambiente. "
+        "Explica de forma clara, rigurosa y comprensible conceptos científicos o procesos naturales. "
+        "No generes ejemplos experimentales aquí."
+    ))
+    resp = llm.invoke([system, HumanMessage(content=f"Explica: {concepto}")])
+    return resp.content.strip()
 
 
-class ExperimentoSugeridoInput(BaseModel):
-    concepto: str = Field(description="Fenómeno o concepto para el que se propone un experimento.")
-
-@tool(args_schema=ExperimentoSugeridoInput)
+# 2) Experimento sugerido → híbrido Tavily + LLM
+@tool
 def experimento_sugerido(concepto: str) -> str:
-    """Propone un experimento o simulación sencilla para comprobar un concepto o fenómeno."""
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "Eres un profesor de CTA que sugiere experimentos educativos simples."),
-        ("human", f"Propón un experimento o simulación sencilla para comprobar: {concepto}")
-    ])
-    cadena = prompt | llm_generador | parser_generador
+    """
+    Propone un experimento educativo o simulación sencilla para comprobar un fenómeno científico.
+    Usa Tavily para buscar ideas o contextos experimentales y redacta una versión práctica y segura.
+    """
+    contexto_text = ""
     try:
-        return cadena.invoke({})
+        tavily = TavilySearchResults(max_results=4)
+        raw_results = tavily.invoke({"query": f"Experimento educativo sobre {concepto}"})
+        if isinstance(raw_results, list):
+            contexto_text = "\n".join([r.get("content", "") for r in raw_results if isinstance(r, dict)])
+        else:
+            contexto_text = str(raw_results)
     except Exception as e:
-        return f"Error en experimento_sugerido: {e}"
+        contexto_text = f"(No se pudo obtener contexto de Tavily: {e})"
+
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.45)
+    system = SystemMessage(content=(
+        "Eres un profesor de CTA que sugiere experimentos seguros y didácticos para estudiantes de secundaria. "
+        "Usa el CONTEXTO si es útil, pero describe solo un experimento breve y realista."
+    ))
+    human = HumanMessage(content=(
+        f"CONTEXTO web:\n{contexto_text}\n\n"
+        f"Propón un experimento sencillo para comprobar o demostrar: {concepto}"
+    ))
+    resp = llm.invoke([system, human])
+    return resp.content.strip()
 
 
-class AnalisisImpactoInput(BaseModel):
-    tema: str = Field(description="Tema ambiental o tecnológico a analizar.")
-
-@tool(args_schema=AnalisisImpactoInput)
+# 3) Análisis de impacto → reflexión sobre sostenibilidad
+@tool
 def analisis_impacto(tema: str) -> str:
-    """Analiza impactos ambientales o tecnológicos y propone soluciones sostenibles."""
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "Eres un experto en sostenibilidad y CTA."),
-        ("human", f"Analiza los impactos ambientales o tecnológicos de: {tema} y propone soluciones sostenibles.")
-    ])
-    cadena = prompt | llm_generador | parser_generador
-    try:
-        return cadena.invoke({})
-    except Exception as e:
-        return f"Error en analisis_impacto: {e}"
+    """
+    Analiza los impactos ambientales o tecnológicos de un tema y propone soluciones sostenibles.
+    Usa solo el LLM, sin búsqueda externa.
+    """
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.3)
+    system = SystemMessage(content=(
+        "Eres un especialista en sostenibilidad y medio ambiente. "
+        "Analiza de forma objetiva los efectos positivos y negativos del tema, "
+        "y plantea una o dos soluciones prácticas sostenibles."
+    ))
+    resp = llm.invoke([system, HumanMessage(content=f"Analiza los impactos ambientales o tecnológicos de: {tema}")])
+    return resp.content.strip()
 
 
+# Lista de herramientas
 tools = [explicacion_cientifica, experimento_sugerido, analisis_impacto]
 
-# =======================================================================
-# 3. GRAFO Y ESTADO (LANGGRAPH) - AGENTE CTA
-# =======================================================================
-class CTAGraphState(TypedDict):
-    messages: Annotated[List[BaseMessage], lambda x, y: x + y]
+# =========================================
+# PROMPT BASE DEL AGENTE CTA
+# =========================================
+prompt = """
+Eres EVA, una especialista en Ciencias, Tecnología y Ambiente (CTA).
+Tu tarea es analizar la pregunta del usuario y decidir qué herramienta usar:
 
+- Si el usuario pide una **explicación o definición** de un concepto o fenómeno, usa **explicacion_cientifica**.
+- Si el usuario pide un **experimento o simulación**, usa **experimento_sugerido**.
+- Si el usuario pide un **análisis de impacto ambiental o tecnológico**, usa **analisis_impacto**.
+
+Responde siempre en formato JSON con los siguientes campos:
+{
+  "explicacion_profunda": "Explicación o análisis del fenómeno o tema",
+  "parrafo_ejemplo": "Ejemplo, experimento o propuesta aplicada (vacío si no aplica)"
+}
+"""
+
+# =========================================
+# CREACIÓN DEL AGENTE REACT
+# =========================================
+agent = create_react_agent(llm, tools, checkpointer=memory, prompt=prompt)
+
+# =========================================
+# FUNCIÓN PARA STREAMLIT / ORQUESTADOR
+# =========================================
 global_llm_with_tools = None
 
-def cta_agent_node(state: CTAGraphState):
-    """Nodo principal del agente CTA que genera la respuesta final en formato JSON."""
-    messages = state["messages"]
-    if global_llm_with_tools is None:
-        raise ValueError("El agente no ha sido inicializado. Ejecuta get_cta_agent() primero.")
-    
-    final_prompt = ChatPromptTemplate.from_messages([
-        SystemMessage(content=(
-            "Eres un agente especialista en el curso de Ciencias, Tecnología y Ambiente para secundaria. "
-            "Responde en formato JSON según el esquema provisto."
-        )),
-        MessagesPlaceholder(variable_name="messages"),
-        HumanMessage(content=FORMAT_INSTRUCTIONS)
-    ])
-    
-    agent_chain = final_prompt | global_llm_with_tools
-    response = agent_chain.invoke({"messages": messages})
-    return {"messages": [response]}
-
-
-def cta_tool_node(state: CTAGraphState):
-    """Ejecuta la herramienta llamada por el agente y devuelve ToolMessage con el resultado."""
-    messages = state["messages"]
-    last_message = messages[-1]
-    tool_results: List[ToolMessage] = []
-
-    for tool_call in getattr(last_message, "tool_calls", []):
-        tool_name = tool_call["name"]
-        tool_args = tool_call["args"]
-
-        if tool_name == "explicacion_cientifica":
-            result_content = explicacion_cientifica.invoke(tool_args)
-        elif tool_name == "experimento_sugerido":
-            result_content = experimento_sugerido.invoke(tool_args)
-        elif tool_name == "analisis_impacto":
-            result_content = analisis_impacto.invoke(tool_args)
-        else:
-            result_content = f"Error: Herramienta desconocida: {tool_name}"
-
-        tool_results.append(ToolMessage(tool_call_id=tool_call["id"], content=result_content, name=tool_name))
-
-    return {"messages": tool_results}
-
-
-def cta_should_continue(state: CTAGraphState) -> str:
-    """Decide si el grafo debe continuar usando herramientas o terminar."""
-    last_message = state["messages"][-1]
-    return "tools" if getattr(last_message, "tool_calls", None) else END
-
-
 def get_cta_agent():
-    """Inicializa y compila el agente CTA; devuelve el executor y el schema Pydantic."""
+    """Inicializa y devuelve el agente de CTA y su esquema."""
     global global_llm_with_tools
 
     if global_llm_with_tools is None:
-        print("🤖 Inicializando Agente CTA...")
-        llm_agent = ChatOpenAI(temperature=0, model="gpt-4o")
-        global_llm_with_tools = llm_agent.bind_tools(tools)
-        print("✅ Agente CTA inicializado.")
+        print("🤖 Inicializando Agente CTA (LangGraph ReAct)...")
+        global_llm_with_tools = agent
+        print("✅ Agente CTA inicializado correctamente.")
 
-    memory_saver = MemorySaver()
-    workflow = StateGraph(CTAGraphState)
-    workflow.add_node("agent", cta_agent_node)
-    workflow.add_node("tools", cta_tool_node)
-    workflow.set_entry_point("agent")
-    workflow.add_conditional_edges("agent", cta_should_continue, {"tools": "tools", END: END})
-    workflow.add_edge("tools", "agent")
+    schema = {
+        "explicacion_profunda": "str",
+        "parrafo_ejemplo": "str"
+    }
 
-    return workflow.compile(checkpointer=memory_saver), RespuestaArgumentativa
+    return global_llm_with_tools, schema
