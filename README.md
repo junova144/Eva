@@ -1,6 +1,6 @@
 # 🌟 EVA: Soporte Educativo Autónomo 
 
-**Plataforma Multi-Agente basada en LangGraph para la Asistencia educativa especializada y segura.**
+**Sistema de Asistencia Educativa Especializada usando LangChain para la Asistencia educativa especializada y segura.**
 
 ---
 
@@ -10,7 +10,7 @@
 Los modelos de lenguaje masivos (LLMs) fallan al proveer **precisión contextual** y **uniformidad pedagógica** en múltiples asignaturas. Depender de un único modelo para ser experto en Matemáticas, Comunicación e Inglés resulta en respuestas genéricas o superficiales.
 
 ### El Valor de EVA: Ruteo Especializado
-EVA resuelve este desafío utilizando una arquitectura **Multi-Agente de Ruteo Estratégico** orquestada por **LangGraph**. El sistema actúa como un **Director Pedagógico** que:
+EVA resuelve este desafío utilizando una arquitectura de Agentes Especializados con LangChain. Cada agente funciona como un Experto Pedagógico, que:
 
 1.  **Clasifica la Intención:** Identifica la materia y el tipo de solicitud del estudiante.
 2.  **Rutea al Experto:** Envía la solicitud a un **Agente Especializado** (un Grafo de LangGraph) configurado con el *expertise* y las herramientas necesarias para esa asignatura.
@@ -39,11 +39,11 @@ Centraliza las variables de entorno, claves de API, y los parámetros de los LLM
 
 ## 📐 3. Arquitectura del Sistema: Orquestación y Agentes
 
-El cerebro de EVA es un sistema de ejecución basado en **LangGraph**, divido en un Supervisor y múltiples Agentes Especializados.
+El cerebro de EVA está construido con LangChain, usando un Supervisor que coordina múltiples agentes especializados.
 
 ### 3.1. El Supervisor Central (`main.py`)
 El archivo principal actúa como el **Supervisor/Orquestador** y gestor de ruteo.
-* **Ruteo Dinámico:** Contiene el diccionario **`AGENTS_EXECUTORS`** que mapea el `curso_detectado` a la instancia de **LangGraph Executor** correspondiente.
+* **Ruteo Dinámico:** Contiene el diccionario AGENTS_EXECUTORS que mapea el curso_detectado a la instancia de agente especializado de LangChain correspondiente.
 * **Función:** Llama primero al Validador y luego invoca el Grafo del Agente específico.
 
 ### 3.2. El Validador Estratégico (`app/validator.py`)
@@ -52,9 +52,9 @@ La primera línea de razonamiento del sistema.
 * **Outputs Clave:** Genera el campo **`curso_detectado`** (para el ruteo) y la **`instruccion_maquina`** (el comando preciso para el agente).
 
 ### 3.3. Los Agentes Especializados (`agents/*.py`)
-Cada archivo es un **Executor de LangGraph dedicado (Grafo)** que maneja una materia específica.
+Cada archivo es un agente especializado de LangChain, que opera en un ciclo de Razonamiento con Herramientas (ReAct-style).
 * **Estructura Interna:** Cada agente opera en un ciclo de **Razonamiento con Herramientas (ReAct-style)**.
-* **Especialización:** Cada grafo tiene un *System Prompt* único que define su **tono pedagógico** y su enfoque experto.
+* **Especialización:** Cada agente tiene un System Prompt único que define su tono pedagógico y su enfoque experto..
 
 ---
 
@@ -64,7 +64,7 @@ Las herramientas (`tools/`) son las "manos" de los agentes, proporcionando capac
 
 | Herramienta | Función Principal | Impacto en el Valor |
 | :--- | :--- | :--- |
-| **Producción Híbrida** | Implementa **RAG Híbrido**. Usa **Tavily Search** para contexto actualizado y luego un LLM anidado (GPT-4o-mini) para redacción. | **Actualidad y Eficiencia.** Garantiza respuestas precisas y optimiza los costos operativos. |
+| **Producción Híbrida** | Implementa **RAG Híbrido**. Usa **Tavily Search** para contexto actualizado y luego un LLM anidado (GPT-4o-mini) para redacción. | **Actualidad y Eficiencia.** Garantiza respuestas precisas y actuales. |
 | **Comprensión/Validación** | Simula el análisis de la estructura y el nivel de complejidad del texto. | **Toma de Decisiones.** Permite al agente razonar sobre el nivel de profundidad requerido antes de generar la respuesta. |
 
 ### Stack Tecnológico
