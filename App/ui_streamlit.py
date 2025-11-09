@@ -40,8 +40,11 @@ def main():
     if st.button("Enviar pregunta"):
         if pregunta.strip():
             with st.spinner("EVA está analizando tu pregunta..."):
-                respuesta = procesar_pregunta(pregunta, grado, curso)
-                st.success(respuesta)
+                try:
+                    respuesta = procesar_pregunta(pregunta, grado, curso)
+                    st.markdown(respuesta)
+                except Exception as e:
+                    st.error(f"Ocurrió un error al procesar la pregunta: {e}")
         else:
             st.warning("Por favor, escribe una pregunta antes de enviar.")
 
